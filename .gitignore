@@ -1,0 +1,35 @@
+node_modules
+
+# Output
+.output
+.vercel
+.netlify
+.wrangler
+/.svelte-kit
+/build
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+# Playwright
+test-results
+
+# Supabase CLI local state
+supabase/.temp
+supabase/.branches
+
+# PRDs — local working documents
+docs/prds
+
+# Probes — local investigations and their results, kept out of git and lint
+probes/

@@ -1,0 +1,23 @@
+-- Drop public.media_usage().
+--
+-- ---------------------------------------------------------------------------
+-- WHAT THIS CHANGES FOR EXISTING USERS
+-- ---------------------------------------------------------------------------
+-- Nothing they can see. The Storage page on both `main` and `dev` reads
+-- media_breakdown() (20260926120000_recycle_bin); media_usage() was kept only
+-- while `main` still called it. No table, policy or other function changes.
+--
+-- Nothing in the database depends on it. Checked in the catalog, locally and on
+-- hosted, before this was written: no pg_depend row names it, and no function
+-- body, policy expression, view, column default, constraint, event trigger or
+-- cron command mentions it. The one body that says "media_usage" is
+-- media_allowance_remaining()'s, in a comment naming the migration
+-- 20260923120000_media_usage, which stays true. RESTRICT (the default, spelled
+-- out) so that anything that has come to depend on it since stops the drop
+-- rather than going with it.
+--
+-- entry_media_paths(jsonb) keeps its grant to authenticated. The comment in
+-- 20260923120000_media_usage gives media_usage() as the reason; the reason now
+-- is bin_items(), which runs as the caller and calls it.
+
+DROP FUNCTION public.media_usage() RESTRICT;

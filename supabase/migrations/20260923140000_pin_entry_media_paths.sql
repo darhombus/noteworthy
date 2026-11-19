@@ -1,0 +1,35 @@
+-- Pin search_path on public.entry_media_paths(jsonb).
+--
+-- ---------------------------------------------------------------------------
+-- WHAT THIS CHANGES FOR EXISTING USERS
+-- ---------------------------------------------------------------------------
+-- One setting on one function. Its body, owner, grants and answers are
+-- unchanged, and `main` does not call it. Only media_usage() does, which is
+-- slower by the cost measured below.
+--
+-- ---------------------------------------------------------------------------
+-- WHY
+-- ---------------------------------------------------------------------------
+-- 20260923120000_media_usage left this function unpinned, relying on every
+-- name in it being schema-qualified (operators included), because a SET clause
+-- stops Postgres inlining a SQL function and saves and restores the setting on
+-- every call. That protection lasts only as long as every future edit keeps
+-- every name qualified, and nothing checks that. A pinned search_path holds
+-- whatever the body says. So it is pinned, like media_usage() and
+-- media_allowance_remaining(), and the qualified names stay as a second layer.
+--
+-- The comment in 20260923120000_media_usage that explains leaving it unpinned
+-- no longer describes the function; this one does.
+--
+-- ---------------------------------------------------------------------------
+-- WHAT IT COSTS
+-- ---------------------------------------------------------------------------
+-- media_usage() calls this once per live entry. Measured locally, with 50,000
+-- other accounts' objects in the bucket; see docs/constraints.md for the
+-- figures.
+--
+-- ALTER rather than CREATE OR REPLACE, so that the body cannot drift from the
+-- one already pushed. The signature is unchanged, so there is no second
+-- overload to DROP.
+
+ALTER FUNCTION public.entry_media_paths(jsonb) SET search_path = '';

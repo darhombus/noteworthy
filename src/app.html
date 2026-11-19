@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en" %nw.htmlclass%>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="text-scale" content="scale" />
+		<!--
+			The page's engine, for appearance only (never behaviour): how strongly
+			media in a selection is tinted, and an audio tint's corners, follow each
+			engine's own drawing. Told by a property only that engine parses, not by
+			the user agent (Playwright's WebKit claims to be a Mac; Chrome and Firefox
+			on iOS are WebKit). Exactly one match, or `other`. Before the stylesheet
+			and the editor, so nothing is drawn without it. See docs/constraints.md,
+			"Media in a selection".
+		-->
+		<script>
+			(function () {
+				var found = [
+					['chromium', CSS.supports('-webkit-app-region', 'drag')],
+					['firefox', CSS.supports('-moz-appearance', 'none')],
+					['webkit', CSS.supports('-webkit-nbsp-mode', 'space')]
+				].filter(function (engine) {
+					return engine[1];
+				});
+				document.documentElement.dataset.engine = found.length === 1 ? found[0][0] : 'other';
+			})();
+		</script>
+		<!--
+			The page's colour before any stylesheet: what a browser paints between
+			two documents, behind a hidden page, and past the edge on overscroll.
+			Keyed on the class the server writes, and for `system` on the OS, so it
+			needs neither the stylesheet nor a script. See docs/constraints.md,
+			"Nothing white between pages".
+		-->
+		<style>
+			html {
+				color-scheme: light;
+				background-color: #fafafa;
+			}
+			html.dark {
+				color-scheme: dark;
+				background-color: #121212;
+			}
+			@media (prefers-color-scheme: dark) {
+				html:not(.light) {
+					color-scheme: dark;
+					background-color: #121212;
+				}
+			}
+		</style>
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

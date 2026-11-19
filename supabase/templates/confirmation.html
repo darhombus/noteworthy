@@ -1,0 +1,26 @@
+<!--
+  The signup confirmation email (PRD 10, Section 2). Wired into
+  supabase/config.toml for the local stack; the same file is pasted into the
+  hosted dashboard (Authentication, Emails, Confirm signup), subject "Confirm
+  your Noteworthy email". Sent only while email confirmation is on.
+  No template braces in this comment: the template engine reads comments too.
+
+  The link opens the app's /auth/confirm, whose button verifies; nothing here
+  verifies on a GET, so a mail scanner opening it spends nothing. The same
+  link logic as recovery.html: RedirectTo is the emailRedirectTo the app passed
+  (origin + /auth/confirm) when it is on the allow list, and the Site URL
+  otherwise, so the Site URL must be an origin with no trailing slash.
+
+  "1 hour" is fixed text. It must match the email OTP expiry (otp_expiry, 3600
+  seconds), locally and on hosted: no template variable gives it.
+-->
+<h2>Confirm your Noteworthy email</h2>
+<p>Someone signed up to Noteworthy with this address. To confirm it, open this link:</p>
+<p>
+	<a
+		href="{{ if eq .RedirectTo .SiteURL }}{{ .SiteURL }}/auth/confirm{{ else }}{{ .RedirectTo }}{{ end }}?token_hash={{ .TokenHash }}&amp;type=signup"
+		>Confirm your email</a
+	>
+</p>
+<p>This link works for 1 hour.</p>
+<p>If you didn't sign up, ignore this email.</p>

@@ -1,0 +1,14 @@
+# Package Managers
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+bun.lock
+bun.lockb
+
+# Miscellaneous
+/static/
+
+# Reference material and generated state — not ours to format
+docs/next-reference.md
+supabase/.temp
+src/lib/types/database.ts

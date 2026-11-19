@@ -1,0 +1,1199 @@
+/**
+ * `source('../')` is `src/`, relative to this file, and it is what Tailwind
+ * scans for class names.
+ *
+ * Without it Tailwind picks its own base — the project root — and walks
+ * everything git does not ignore. Measured, that is `docs/`, `e2e/`, `tests/`
+ * and `supabase/` as well as `src/`: a probe class planted in each one came
+ * back in the built stylesheet from all five.
+ *
+ * Scoping took the build from 49,052 to 47,972 bytes and dropped seven
+ * utilities that nothing renders:
+ *
+ *   .min-h-[400px]  .text-[11pt]  .text-[var(--text-primary)]  .relative
+ *     ← docs/next-reference.md, describing the *previous* app
+ *   .uppercase  .shadow  .relative     ← supabase/config.toml
+ *   .transition                        ← the word "transition" in a migration
+ *
+ * The bytes are the small half. `text-[var(--text-primary)]` is a utility built
+ * around a custom property this app never defines, and the last two are
+ * ordinary English words in a TOML file and a SQL comment — which is the real
+ * hazard: a class can keep being emitted long after the markup that used it is
+ * gone, and nothing ever says so.
+ *
+ * Note that this belongs on the `@import`, not in a bare `@source`. A bare
+ * `@source` *adds* a path to automatic detection rather than replacing it, so
+ * it would widen the scan rather than narrow it and leave this file reading as
+ * though it had been scoped.
+ */
+@import 'tailwindcss' source('../');
+@plugin '@tailwindcss/forms';
+@plugin '@tailwindcss/typography';
+
+/**
+ * What `dark:` responds to.
+ *
+ * Tailwind 4 keys `dark:` on `prefers-color-scheme` by default, so without this
+ * every `dark:` class in the app would follow the OS and ignore the toggle.
+ * Redefining the variant by name replaces that built-in.
+ *
+ * Two rules, so `dark:` applies in two situations:
+ *
+ *   1. anywhere inside `.dark` — an explicit choice, written on `<html>` by
+ *      `hooks.server.ts` from the `theme` cookie; and
+ *   2. when the OS is dark AND `<html>` carries neither class — which is what
+ *      `system` looks like, since `themeAttribute` writes nothing for it.
+ *
+ * An explicit `.light` therefore beats a dark OS, which is the whole point of
+ * offering `light` as a choice: rule 2 stops matching the moment either class
+ * is present.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THE MEDIA QUERY LIVES HERE AND NOT OVER A SET OF TOKENS
+ * ---------------------------------------------------------------------------
+ * The usual way to resolve `system` in CSS is to redefine colour custom
+ * properties under `@media (prefers-color-scheme: dark)` for an unclassed
+ * `<html>`. That needs a token layer to redefine, and this app has none — its
+ * dark styling is several hundred literal `dark:bg-[#121212]`-style utilities
+ * written across the components, with no custom properties behind them.
+ *
+ * Putting the media query inside the variant gets the same property without
+ * inventing that layer: `system` is resolved by the stylesheet, before first
+ * paint, with no JavaScript and therefore no flash — and every `dark:` class
+ * already written keeps working untouched.
+ *
+ * ---------------------------------------------------------------------------
+ * SPECIFICITY
+ * ---------------------------------------------------------------------------
+ * Both rules wrap their selectors in `:where()`, which contributes zero
+ * specificity. So `dark:bg-[#121212]` and `bg-[#FAFAFA]` stay evenly matched
+ * and source order decides, which is what makes the pairs written throughout
+ * the components behave — Tailwind emits variants after their base utilities.
+ * Dropping `:where()` would let any `dark:` utility outrank its own base and
+ * win in light mode too.
+ */
+@custom-variant dark {
+	&:where(.dark, .dark *) {
+		@slot;
+	}
+
+	@media (prefers-color-scheme: dark) {
+		&:where(html:not(.light):not(.dark), html:not(.light):not(.dark) *) {
+			@slot;
+		}
+	}
+}
+
+/**
+ * An entry's body — both while it is being written and while it is being read.
+ *
+ * ---------------------------------------------------------------------------
+ * ONE RULE SET, TWO SURFACES
+ * ---------------------------------------------------------------------------
+ * `.entry-prose` is worn by the TipTap editor and by the read view alike, and
+ * holds everything they must agree on: the typeface, the size, the colours, the
+ * highlight, the blockquote. The two modifiers below hold only the things that
+ * genuinely differ — a caret and a minimum height on one side, a heading-level
+ * shift on the other.
+ *
+ * Split this way because "what you wrote looks like what you read" is a claim
+ * that decays silently. Two independent rule sets agree on the day they are
+ * written and drift one property at a time afterwards, and nothing fails when
+ * they do; the entry just quietly reads differently from how it was typed.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS CSS AND NOT A ROW OF `prose-*` UTILITIES
+ * ---------------------------------------------------------------------------
+ * The editable element belongs to ProseMirror, not to Svelte: its class list is
+ * handed over once through `editorProps.attributes` and everything inside it —
+ * the headings, the list markers, the blockquote rule — is DOM that no template
+ * in this repo writes. So the only two ways to style it are `prose` with the
+ * typography plugin's variables redefined, which is this, or a long line of
+ * `prose-headings:text-[#212121] dark:prose-headings:text-[#F5F5F5]` modifiers
+ * repeating the same two tokens a dozen times over.
+ *
+ * Note that these are the plugin's *own* custom properties. Redefining them is
+ * the supported way to re-colour `prose`, and it is why `dark:prose-invert` is
+ * not used: `prose-invert` swaps in the plugin's grey scale, which is not this
+ * app's dark palette and would put a fourth set of greys on a page that already
+ * has `#F5F5F5`, `#9E9E9E` and `#3A3A3A`.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT IS NOT STYLED HERE
+ * ---------------------------------------------------------------------------
+ * `code`, `pre`, `hr`, tables and `figure` have no rules below because none of
+ * them can occur: the editor's extension list does not include them, and the
+ * server rebuilds every incoming document from a vocabulary that does not name
+ * them either. If a selector for one ever becomes necessary, something upstream
+ * of this file has changed and that is the thing to look at.
+ */
+.entry-prose {
+	--tw-prose-body: #212121;
+	--tw-prose-headings: #212121;
+	--tw-prose-bold: #212121;
+	--tw-prose-links: #1976d2;
+	--tw-prose-quotes: #616161;
+	--tw-prose-quote-borders: #e0e0e0;
+	--tw-prose-bullets: #616161;
+	--tw-prose-counters: #616161;
+
+	/* Georgia at 18px/1.75 — the textarea's size on the edit page, and the read
+	   view's size too, so an entry is the same shape in both. A journal's font and
+	   size replace the first two (ENTRY FONTS, below); Default and Normal set
+	   neither property, so these fallbacks are what draws them. */
+	font-family: var(--entry-font, var(--font-serif));
+	font-size: var(--entry-size, 18px);
+	font-size-adjust: var(--entry-adjust, none);
+	line-height: 1.75;
+
+	/* An entry can contain a 200-character URL with no spaces in it, typed or
+	   pasted, and at 390px that single word is wider than the screen. Without
+	   this the whole page scrolls sideways — every paragraph, the header and the
+	   breadcrumbs — because of one word in one entry. */
+	overflow-wrap: break-word;
+
+	@variant dark {
+		--tw-prose-body: #f5f5f5;
+		--tw-prose-headings: #f5f5f5;
+		--tw-prose-bold: #f5f5f5;
+		--tw-prose-links: #1976d2;
+		--tw-prose-quotes: #9e9e9e;
+		--tw-prose-quote-borders: #3a3a3a;
+		--tw-prose-bullets: #9e9e9e;
+		--tw-prose-counters: #9e9e9e;
+	}
+
+	/* `prose` puts a top margin on its first block and a bottom margin on its
+	   last, which inside a bordered box reads as uneven padding. */
+	> :first-child {
+		margin-top: 0;
+	}
+
+	> :last-child {
+		margin-bottom: 0;
+	}
+
+	/* `prose` opens and closes every blockquote with a curly quotation mark, put
+	   there by `content:`. They are not in the document — the word count does not
+	   see them, search does not index them, and copying the text does not take
+	   them — so the editor would be showing two characters that are not part of
+	   what is being written. A blockquote in a diary is as often an indent or an
+	   aside as an actual quotation, too. The left rule is enough. */
+	blockquote p:first-of-type::before,
+	blockquote p:last-of-type::after {
+		content: none;
+	}
+
+	/* A photo, in both surfaces.
+
+	   Full width of the text column, which is what "the editor and the read view
+	   match" means here: the two columns are different widths (the edit page is
+	   wider than the read page), and a photo fills whichever it is in rather than
+	   taking a size of its own. There is deliberately no way to choose a size.
+
+	   `prose` would give a figure and an image 2em of margin each, which on a
+	   photo between two paragraphs reads as a gap twice the size of the one
+	   between them. 1.5em on the figure alone, and none on the image inside it.
+
+	   The grey behind the image is what fills its space while it loads, and it is
+	   on the image rather than the figure so it disappears with it.
+
+	   `position: relative` is for the editor's collapse button, which sits in
+	   the item's corner (see COLLAPSING below). It moves nothing. */
+	figure.entry-media {
+		position: relative;
+		margin: 1.5em 0;
+	}
+
+	/* In Chromium, a photo's figure is not selectable as text, as it was while
+	   photos were `draggable` (Chromium alone computed `none` for it then).
+	   Without it, Ctrl+X over a selection whose ends both lie between photos cut
+	   nothing: no `cut` event came. Not elsewhere: in WebKit the same rule left a
+	   click at the start of the line below the photos unable to place the caret
+	   there (2026-11-06; docs/constraints.md, "Photos in entries"). */
+	:root[data-engine='chromium'] & figure.entry-media:not([data-media-kind]) {
+		user-select: none;
+	}
+
+	/* THE HEIGHT CAP. A photo or video is at most 60% of the window's height,
+	   keeping its shape, centred in the column; one wide enough to fill the
+	   column at a lower height does, as it always has. So a portrait photo from a
+	   phone no longer takes the whole page.
+
+	   The cap is a width, not a `max-height`: the widest the item can be while
+	   its height stays under 60%, which is 60% of the height times its width over
+	   its height. `--media-ratio` is that last number, set from the node's stored
+	   size on the figure (`mediaRatio` in `$lib/media/collapsed`). Capping the
+	   width keeps the box its true shape, so the grey space held for a photo
+	   before it loads is exactly the space it loads into — where a `max-height`
+	   alone would squash the box and leave the picture to letterbox inside it.
+
+	   Without a stored size the ratio falls back to one that never binds, and
+	   the `max-height` catches the item instead: a photo is fitted inside the box
+	   (`object-fit`), and a video letterboxes as players do anyway.
+
+	   `svh`, the height with the browser's own bars showing, rather than `vh` or
+	   `dvh`: a phone's address bar comes and goes as the page scrolls, and a cap
+	   that followed it would move every photo in the entry under the reader's
+	   thumb. Read view and editor alike. */
+	.entry-media img,
+	.entry-media video,
+	.entry-media-pending {
+		width: min(100%, calc(60svh * var(--media-ratio, 1000)));
+		max-height: 60svh;
+		margin: 0 auto;
+	}
+
+	.entry-media img {
+		display: block;
+		height: auto;
+		object-fit: contain;
+		border-radius: 0.5rem;
+		background-color: #f5f5f5;
+
+		@variant dark {
+			background-color: #2c2c2c;
+		}
+	}
+
+	/* Before there is a link to load: the photo's own shape when the node knows
+	   it, and something a paragraph tall when it does not. Only then: a least
+	   height on a shaped box made a wide photo's box taller than the photo, and
+	   everything under it rose when the link landed — on every tap, since the
+	   links follow the text (48px at 320px for a 6:1 photo; docs/constraints.md,
+	   "Text before media links"). A known shape is the inline `aspect-ratio`
+	   every box that knows one is given (`EntryImage`, `EntryEditMedia` and the
+	   editor's node views). */
+	.entry-media-pending {
+		border-radius: 0.5rem;
+		background-color: #f5f5f5;
+
+		@variant dark {
+			background-color: #2c2c2c;
+		}
+	}
+
+	.entry-media-pending:not([style*='aspect-ratio']) {
+		min-height: 6rem;
+	}
+
+	.entry-media-missing {
+		margin: 0;
+		border: 1px dashed #e0e0e0;
+		border-radius: 0.5rem;
+		padding: 1.25rem;
+		text-align: center;
+		font-size: 0.875rem;
+		font-style: italic;
+		color: #616161;
+
+		@variant dark {
+			border-color: #3a3a3a;
+			color: #9e9e9e;
+		}
+	}
+
+	/* Video and audio, in the browser's own players, at the full width of the
+	   column like a photo. A video with a stored size holds its shape before it
+	   loads, through its width and height attributes; one without takes the
+	   element's default until its metadata arrives. The black behind a video is
+	   the letterbox a player draws anyway, in both themes. */
+	.entry-media video,
+	.entry-media audio {
+		display: block;
+	}
+
+	.entry-media audio {
+		width: 100%;
+		margin: 0;
+	}
+
+	.entry-media video {
+		height: auto;
+		border-radius: 0.5rem;
+		background-color: #000000;
+	}
+
+	/* A video with no picture, drawn as the audio player it is: its height is
+	   set from the browser's own audio player by `fitSoundOnlyVideo`, and the
+	   letterbox black goes, since there is nothing for it to frame. Full width,
+	   like audio: it has no picture for the height cap to be about. */
+	.entry-media video.entry-media-sound {
+		width: 100%;
+		max-height: none;
+		border-radius: 0;
+		background-color: transparent;
+	}
+
+	/* A player with focus says so: its keys only work while it has it. */
+	.entry-media video:focus-visible,
+	.entry-media audio:focus-visible {
+		outline: 2px solid rgb(25 118 210 / 0.6);
+		outline-offset: 2px;
+	}
+
+	/* Media the editor has selected, as ProseMirror marks it. A ring rather
+	   than an outline, so the rounded corners are followed. */
+	.entry-media.ProseMirror-selectednode img,
+	.entry-media.ProseMirror-selectednode video,
+	.entry-media.ProseMirror-selectednode audio,
+	.entry-media.ProseMirror-selectednode .entry-media-row,
+	/* Picked up by a long press on its corner button: the same ring. */
+	.entry-media.entry-media-lifted img,
+	.entry-media.entry-media-lifted video,
+	.entry-media.entry-media-lifted audio,
+	.entry-media.entry-media-lifted .entry-media-row {
+		box-shadow: 0 0 0 3px rgb(25 118 210 / 0.55);
+	}
+
+	/* MEDIA IN A SELECTION, editor only: a photo, video or audio item wholly
+	   inside a text selection or a select-all is tinted, as the text around it
+	   is drawn (`$lib/entries/selection-tint` adds the class). The ring above
+	   stays for an item selected on its own, so the two look different.
+
+	   The colour is `Highlight`, the system's selection colour, which follows
+	   the theme's `color-scheme` by itself. Firefox and WebKit draw selected
+	   text in exactly it; Chromium draws its own fixed blue, which CSS cannot
+	   name. Set by relative colour, since Firefox's dark `Highlight` carries an
+	   alpha of its own.
+
+	   How strongly, and an audio tint's corners, follow the engine
+	   (`data-engine` on the root, set in `app.html`; appearance only). The
+	   alpha makes a tinted photo differ from itself as much as the engine's own
+	   selected text differs from the page (mean ΔE on a photo-like image), up to
+	   0.6, past which the picture stops being plain to see: Chromium's text,
+	   and Firefox's in light, would need more than that. An audio tint takes the
+	   shape of the engine's player: Chromium's is a pill, Firefox's square,
+	   WebKit's has corners of 8px. An unknown engine gets 0.3 and the photo's
+	   corners. */
+	&.ProseMirror {
+		--tint-alpha: 0.3;
+		--audio-tint-radius: 0.5rem;
+	}
+
+	:root[data-engine='chromium'] &.ProseMirror {
+		--tint-alpha: 0.6;
+		--audio-tint-radius: 9999px;
+	}
+
+	:root[data-engine='firefox'] &.ProseMirror {
+		--tint-alpha: 0.6;
+		--audio-tint-radius: 0;
+
+		@variant dark {
+			--tint-alpha: 0.44;
+		}
+	}
+
+	:root[data-engine='webkit'] &.ProseMirror {
+		--tint-alpha: 0.32;
+		--audio-tint-radius: 8px;
+
+		@variant dark {
+			--tint-alpha: 0.39;
+		}
+	}
+
+	/* The engines' own marking inside the figure is switched off, so nothing is
+	   tinted twice and every engine looks alike: Firefox tinted a photo, WebKit
+	   every item, and all three the words of a collapsed row.
+
+	   An overlay, never on the media element itself: it changes no size and no
+	   position, and lets every click through to the player beneath. Its box is
+	   the item's — the same width sum as the height cap, centred — or the row.
+	   `position: relative` is set always, so being tinted moves nothing. Hidden
+	   while the editor has lost focus and the browser's own selection has left
+	   it, since the text is then no longer drawn selected either. */
+	.entry-media-body,
+	.entry-media-row {
+		position: relative;
+	}
+
+	&.ProseMirror figure.entry-media::selection,
+	&.ProseMirror figure.entry-media *::selection {
+		background-color: transparent;
+	}
+
+	&.ProseMirror:not(.entry-selection-elsewhere)
+		.entry-media-in-selection
+		> :is(.entry-media-body, .entry-media-row)::after {
+		content: '';
+		position: absolute;
+		inset: 0 calc((100% - min(100%, calc(60svh * var(--media-ratio, 1000)))) / 2);
+		border-radius: 0.5rem;
+		background-color: rgb(from Highlight r g b / var(--tint-alpha));
+		pointer-events: none;
+	}
+
+	/* The full width: an audio player, a video drawn as one, the words saying a
+	   file could not be loaded, and a collapsed row, over its border too. */
+	&.ProseMirror:not(.entry-selection-elsewhere)
+		.entry-media-in-selection
+		> .entry-media-body:has(> audio, > video.entry-media-sound, > .entry-media-missing)::after {
+		inset: 0;
+	}
+
+	&.ProseMirror:not(.entry-selection-elsewhere)
+		.entry-media-in-selection
+		> .entry-media-body:has(> audio)::after {
+		border-radius: var(--audio-tint-radius);
+	}
+
+	&.ProseMirror:not(.entry-selection-elsewhere)
+		.entry-media-in-selection
+		> .entry-media-row::after {
+		inset: -1px;
+	}
+
+	/* THE GAP CURSOR, editor only: the caret where there is no text to hold one,
+	   a vertical line like the text caret in the text's own colour, so it shows
+	   in both themes. At the item's top left corner, or its bottom left for a gap
+	   no item follows (`$lib/entries/gap-cursor` adds the class); just outside the
+	   item, since a dark line over a dark picture would not show. The corner is
+	   the height cap's width sum again.
+
+	   The plugin's own line is switched off. Its element stays, because
+	   `coordsAtPos` measures it to scroll the caret into view.
+
+	   Only while the editor has focus, as the plugin's own and the text caret.
+	   1.06s is the text caret's blink on Windows: Chromium measured 531ms on and
+	   531ms off, the system's setting of 530ms; WebKit about 510ms. */
+	&.ProseMirror .ProseMirror-gapcursor::after {
+		content: none;
+	}
+
+	&.ProseMirror-focused figure:is(.entry-media-gap-before, .entry-media-gap-after)::before {
+		content: '';
+		position: absolute;
+		left: calc((100% - min(100%, calc(60svh * var(--media-ratio, 1000)))) / 2 - 2px);
+		width: 1px;
+		height: 1.25em;
+		background-color: currentColor;
+		pointer-events: none;
+		animation: entry-gap-caret-blink 1.06s step-end infinite;
+	}
+
+	&.ProseMirror-focused figure.entry-media-gap-before::before {
+		top: 0;
+	}
+
+	&.ProseMirror-focused figure.entry-media-gap-after::before {
+		bottom: 0;
+	}
+
+	/* The items that fill the column, as for the tint. */
+	&.ProseMirror-focused
+		figure:is(.entry-media-gap-before, .entry-media-gap-after):is(
+			.entry-media-collapsed,
+			:has(> .entry-media-body > :is(audio, video.entry-media-sound, .entry-media-missing))
+		)::before {
+		left: -2px;
+	}
+
+	/* COLLAPSING, editor only: `$lib/entries/collapse` builds these into the
+	   editor's figures, and the read view has none of them.
+
+	   The collapse button sits in the top right corner of a photo or video —
+	   of the picture, not the column, so the same width sum as the cap moves it
+	   in from the edge of a narrow one. It is over the picture rather than
+	   beside or above it so that nothing about an expanded item's size changes:
+	   the "Uploading…" box, the read view and the editor all agree on it. */
+	.entry-media-collapse {
+		position: absolute;
+		z-index: 1;
+		top: 0.5rem;
+		right: calc((100% - min(100%, calc(60svh * var(--media-ratio, 1000)))) / 2 + 0.5rem);
+		display: flex;
+		width: 2rem;
+		height: 2rem;
+		align-items: center;
+		justify-content: center;
+		border: 1px solid #e0e0e0;
+		border-radius: 0.375rem;
+		background-color: #ffffff;
+		color: #424242;
+		cursor: pointer;
+
+		&:hover {
+			background-color: #f5f5f5;
+		}
+
+		@variant dark {
+			border-color: #3a3a3a;
+			background-color: #1e1e1e;
+			color: #bdbdbd;
+
+			&:hover {
+				background-color: #2c2c2c;
+			}
+		}
+	}
+
+	/* An audio player fills its height with controls, its ⋮ menu at the right
+	   end, so its button goes beside it instead of over it: the player gives up
+	   the button's width, and keeps its height. Block flow and padding rather
+	   than flex, because Firefox draws a flex item `<audio>` 150px tall (see
+	   `.entry-upload-audio`). A video with no picture is drawn as audio, so it
+	   is placed as audio. */
+	.entry-media-foldable:not(.entry-media-collapsed):is(
+			[data-media-kind='audio'],
+			:has(> .entry-media-body > video.entry-media-sound)
+		) {
+		padding-right: 2.75rem;
+
+		> .entry-media-collapse {
+			top: 50%;
+			right: 0;
+			transform: translateY(-50%);
+		}
+	}
+
+	.entry-media-collapse-icon {
+		width: 1rem;
+		height: 1rem;
+	}
+
+	/* A collapsed item: one row, a little shorter than Chromium's audio player
+	   and a little taller than the other two's, in the interface's typeface. */
+	.entry-media-row {
+		display: flex;
+		width: 100%;
+		height: 3rem;
+		align-items: center;
+		gap: 0.75rem;
+		border: 1px solid #e0e0e0;
+		border-radius: 0.5rem;
+		background-color: #ffffff;
+		padding: 0 0.75rem 0 0.375rem;
+		font-family: var(--font-sans);
+		font-size: 0.875rem;
+		line-height: 1.25;
+		text-align: left;
+		color: #424242;
+		cursor: pointer;
+
+		&:hover {
+			background-color: #f5f5f5;
+		}
+
+		@variant dark {
+			border-color: #3a3a3a;
+			background-color: #1e1e1e;
+			color: #bdbdbd;
+
+			&:hover {
+				background-color: #2c2c2c;
+			}
+		}
+	}
+
+	.entry-media-row:focus-visible,
+	.entry-media-collapse:focus-visible {
+		outline: 2px solid rgb(25 118 210 / 0.6);
+		outline-offset: 2px;
+	}
+
+	.entry-media-row-badge {
+		display: flex;
+		width: 2.25rem;
+		height: 2.25rem;
+		flex: none;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+		border-radius: 0.375rem;
+		background-color: #f5f5f5;
+		color: #616161;
+
+		@variant dark {
+			background-color: #2c2c2c;
+			color: #9e9e9e;
+		}
+	}
+
+	/* The photo itself, cropped to a square. More specific than the photo rule
+	   above, which would otherwise size it as a photo. */
+	.entry-media .entry-media-thumb {
+		width: 100%;
+		height: 100%;
+		max-height: none;
+		margin: 0;
+		object-fit: cover;
+		border-radius: 0;
+	}
+
+	.entry-media-row-icon {
+		width: 1.25rem;
+		height: 1.25rem;
+	}
+
+	.entry-media-row-label {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-weight: 500;
+	}
+
+	.entry-media-row-length {
+		font-weight: 400;
+		font-variant-numeric: tabular-nums;
+		color: #616161;
+
+		@variant dark {
+			color: #9e9e9e;
+		}
+	}
+
+	.entry-media-row-chevron {
+		width: 1rem;
+		height: 1rem;
+		flex: none;
+		color: #616161;
+
+		@variant dark {
+			color: #9e9e9e;
+		}
+	}
+
+	/* The highlight mark. One colour, deliberately — see `document.ts` for why
+	   there is no colour picker behind this. */
+	mark {
+		background-color: #fdf3c7;
+		color: #212121;
+		padding: 0.1em 0.15em;
+		border-radius: 0.2em;
+
+		@variant dark {
+			background-color: #4a3d00;
+			color: #f5f5f5;
+		}
+	}
+}
+
+/**
+ * The two heading sizes, written once per surface because the surfaces disagree
+ * about which elements carry them.
+ *
+ * TipTap's schema emits `<h1>` and `<h2>` — those are the node names, and the
+ * editor cannot be told otherwise without rewriting the extension. The read view
+ * shifts down to `<h2>` and `<h3>` so that the entry's title keeps the page's
+ * only `<h1>`; `EntryBlocks.svelte` explains why.
+ *
+ * So the same two headings live on different elements in the two places, and
+ * these four rules are what stop that being visible. Scoped to the modifier
+ * classes rather than to `.entry-prose`, so `.entry-prose h2` never has to mean
+ * two sizes at once.
+ *
+ * The sizes are also smaller than `prose`'s own, and chosen against the entry
+ * title rather than in the abstract. That title is `text-3xl` — 30px — and a
+ * heading *inside* the entry has to read as subordinate to it. `prose` would
+ * have set `h1` to 2.25em, which is 40px on an 18px body and plainly outranks
+ * the entry it belongs to; 1.75em came out at 31.5px, near enough to 30px that
+ * the two looked like peers. 1.5em is 27px, which sits under the title without
+ * having to be squinted at.
+ */
+.entry-edit h1,
+.entry-read h2 {
+	font-size: 1.5em;
+	line-height: 1.3;
+	font-weight: 700;
+	margin-top: 1.6em;
+	margin-bottom: 0.6em;
+}
+
+.entry-edit h2,
+.entry-read h3 {
+	font-size: 1.25em;
+	line-height: 1.4;
+	font-weight: 600;
+	margin-top: 1.5em;
+	margin-bottom: 0.5em;
+}
+
+/** Editor only. */
+.entry-edit {
+	/* `rows="16"` at the shared size and line height. The editor grows with what
+	   is in it and starts no shorter than the textarea it took over from, so
+	   hydrating does not collapse the page under the person's cursor. */
+	min-height: calc(16 * 1.75 * var(--entry-size, 18px));
+	caret-color: #1976d2;
+}
+
+/**
+ * The body on the edit page before the editor arrives (`EntryEditor`, THE
+ * WAIT), drawn as the editor is about to draw it.
+ *
+ * `.entry-edit` gives it the editor's type, headings and height. This gives it
+ * the rest of what ProseMirror's element wears, which TipTap injects as a
+ * stylesheet of its own when the editor is created and so is not on the page
+ * yet: copied from `@tiptap/core` 3.31's `style.ts`, the rules that change
+ * where a line breaks. `break-spaces` keeps every space somebody typed and lets
+ * a run of them wrap; ligatures off, because a ligature is narrower than the
+ * letters it joins. Either, left out, moves a line break, and with it every
+ * line below. `position: relative` is the editor's too: the toolbar row is
+ * drawn over it (`z-10`).
+ *
+ * Figures are `contenteditable="false"` in the editor, which TipTap's sheet
+ * turns back to ordinary white space. They are not marked so here — nothing on
+ * this page is editable yet — so the rule names them instead.
+ */
+.entry-waiting {
+	position: relative;
+	overflow-wrap: break-word;
+	white-space: pre-wrap;
+	white-space: break-spaces;
+	font-variant-ligatures: none;
+	font-feature-settings: 'liga' 0;
+
+	figure {
+		white-space: normal;
+	}
+}
+
+/**
+ * A file on its way into an entry.
+ *
+ * Drawn where the photo will go, as a decoration rather than as content — see
+ * `$lib/entries/uploads` for why nothing half-uploaded is ever in the document.
+ * Written as CSS rather than utilities because this element is built by hand,
+ * in ProseMirror's DOM, where no Svelte template can put classes on it.
+ *
+ * Dashed, because it is not the photo yet. Its height is roughly a small photo's
+ * so that the text below it does not jump twice — once when the placeholder
+ * appears and again when the photo replaces it.
+ */
+.entry-upload {
+	margin: 1.5em 0;
+	display: flex;
+	min-height: 6rem;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	border: 1px dashed #e0e0e0;
+	border-radius: 0.5rem;
+	padding: 1.25rem;
+	font-family: var(--font-sans);
+	font-size: 0.875rem;
+	line-height: 1.4;
+	text-align: center;
+	color: #616161;
+
+	@variant dark {
+		border-color: #3a3a3a;
+		color: #9e9e9e;
+	}
+}
+
+/**
+ * An audio file on its way: the height of the audio player it becomes, which
+ * the empty `<audio controls>` inside it takes from the browser, with the name
+ * and status on one line over it. Nothing moves when the real player replaces
+ * it:
+ *
+ *   the dashed line is an outline, which takes no room, where a border would
+ *   add two pixels;
+ *
+ *   the font size moves to the text, so the box's own `1.5em` margins are
+ *   reckoned at the entry's size and match a figure's, where at the smaller
+ *   size they would be twelve pixels short.
+ *
+ * On failure it opens out into the ordinary box, with room for the message and
+ * the buttons — the size of a failure is not the size of anything that lands.
+ */
+.entry-upload-audio:not(.entry-upload-failed) {
+	/* Block flow, not grid or flex: Firefox sizes an `<audio>` that is a grid or
+	   flex item at the 150px default of a replaced element, not at its player's
+	   height, which it does keep in block flow. So the sizer sets the height in
+	   the ordinary way and the text is laid over it. */
+	display: block;
+	position: relative;
+	min-height: 0;
+	padding: 0;
+	border: none;
+	border-radius: 0.5rem;
+	outline: 1px dashed #e0e0e0;
+	outline-offset: -1px;
+	font-size: inherit;
+
+	@variant dark {
+		outline-color: #3a3a3a;
+	}
+
+	> .entry-upload-line {
+		position: absolute;
+		inset: 0;
+		align-items: center;
+		padding: 0 1rem;
+	}
+}
+
+/**
+ * A photo or video on its way whose size is known — the queue has prepared it —
+ * drawn in the shape it will land in, capped as the landed one is (THE HEIGHT
+ * CAP, above). Its outer box is then the photo's: `border-box` puts the dashed
+ * line inside the ratio, and the font size moves to the text so that the `1.5em`
+ * margins are reckoned at the entry's size, as a figure's are. So nothing moves
+ * when the photo replaces it — above all, a tall photo does not hold a page of
+ * space and then shrink to the cap.
+ */
+.entry-upload-sized {
+	width: min(100%, calc(60svh * var(--media-ratio, 1000)));
+	min-height: 0;
+	margin: 1.5em auto;
+	overflow: hidden;
+	font-size: inherit;
+
+	> * {
+		font-size: 0.875rem;
+	}
+}
+
+.entry-upload-sizer {
+	display: block;
+	width: 100%;
+	visibility: hidden;
+	pointer-events: none;
+
+	.entry-upload-failed > & {
+		display: none;
+	}
+}
+
+.entry-upload-line {
+	display: flex;
+	min-width: 0;
+	justify-content: center;
+	gap: 0.5rem;
+	font-size: 0.875rem;
+	white-space: nowrap;
+
+	.entry-upload-failed > & {
+		flex-direction: column;
+		gap: 0.5rem;
+		white-space: normal;
+	}
+
+	> .entry-upload-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+}
+
+.entry-upload-failed {
+	border-color: #ef9a9a;
+	border-style: solid;
+	background-color: #fff5f5;
+	color: #c62828;
+
+	@variant dark {
+		border-color: #7f3a3a;
+		background-color: #2a1618;
+		color: #ef9a9a;
+	}
+}
+
+.entry-upload-name {
+	margin: 0;
+	overflow-wrap: anywhere;
+	font-weight: 500;
+	color: #424242;
+
+	@variant dark {
+		color: #bdbdbd;
+	}
+}
+
+.entry-upload-status {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+.entry-upload-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 0.5rem;
+	margin: 0;
+
+	&:empty {
+		display: none;
+	}
+}
+
+.entry-upload-button {
+	border: 1px solid #e0e0e0;
+	border-radius: 0.5rem;
+	background-color: #ffffff;
+	padding: 0.375rem 0.75rem;
+	font-size: 0.875rem;
+	color: #212121;
+	cursor: pointer;
+
+	&:hover {
+		background-color: #f5f5f5;
+	}
+
+	@variant dark {
+		border-color: #3a3a3a;
+		background-color: #1e1e1e;
+		color: #f5f5f5;
+
+		&:hover {
+			background-color: #2c2c2c;
+		}
+	}
+}
+
+/** Read view only. Nothing collapses here: see COLLAPSING above. */
+.entry-read {
+	/* A blank line somebody typed is stored as an empty paragraph, and an empty
+	   `<p>` is zero pixels tall. Without this, every entry written through the old
+	   textarea would close up its own spacing the moment it was read back. The
+	   editor does not need the rule: ProseMirror puts a `<br>` inside its empty
+	   paragraphs, so they are not `:empty` there. */
+	p:empty {
+		min-height: 1.75em;
+	}
+}
+
+/**
+ * ---------------------------------------------------------------------------
+ * ENTRY FONTS
+ * ---------------------------------------------------------------------------
+ * A journal's font and size, for its entries' title and text and nothing else
+ * (PRD 14; docs/constraints.md, "Journal fonts"). The element around an entry —
+ * the read page's `<article>`, the edit and new-entry pages' form — carries
+ * `data-entry-font` and `data-entry-size` (`entryType` in
+ * `$lib/journals/fonts`). Those set custom properties here, and only five
+ * things read them: the body (`.entry-prose`, above), the read page's title
+ * (`.entry-title`), the title field (`.entry-title-field`), the no-JavaScript
+ * textarea (`.entry-textarea`), and the journal dialog's preview line
+ * (`.entry-preview`). The labels, dates and buttons inside the same
+ * element never do, so they keep the app's font whatever the journal's is.
+ *
+ * Default and Normal set no property at all: every rule falls back to the
+ * values entries had before (Georgia at 18px for the text, the app's sans at
+ * 30px for the title), so they are drawn as they always were.
+ *
+ * THE FALLBACK is of the font's own kind — sans, serif or monospace — so the
+ * text drawn while the file is on its way is the right shape, and is what stays
+ * if it never comes.
+ *
+ * ONE SIZE FOR EVERY FONT. At the same pixel size the fonts are very different
+ * sizes to the eye: OpenDyslexic is about 1.8× Georgia's width, Dancing
+ * Script's lower case is two thirds of Georgia's height. `font-size-adjust`
+ * draws each so its x-height is Default's (Georgia's, 0.481 of the size), which
+ * makes Normal look about as big in every font: measured, every font's drawn
+ * "x" within 2% of Georgia's, Dancing Script by a value of its own (below). It
+ * changes the size letters are drawn at, not `font-size`, so line height and
+ * everything in `em` stay as they are; and it applies to the fallback too.
+ * Default sets none: Georgia is
+ * already 0.481, and on Apple devices `ui-serif` is New York, left as it is.
+ */
+[data-entry-font='inter'] {
+	--entry-font: 'NW Inter', var(--font-sans);
+}
+[data-entry-font='atkinson-hyperlegible'] {
+	--entry-font: 'NW Atkinson Hyperlegible Next', var(--font-sans);
+}
+[data-entry-font='opendyslexic'] {
+	--entry-font: 'NW OpenDyslexic', var(--font-sans);
+}
+[data-entry-font='lora'] {
+	--entry-font: 'NW Lora', var(--font-serif);
+}
+[data-entry-font='merriweather'] {
+	--entry-font: 'NW Merriweather', var(--font-serif);
+}
+[data-entry-font='literata'] {
+	--entry-font: 'NW Literata', var(--font-serif);
+}
+[data-entry-font='eb-garamond'] {
+	--entry-font: 'NW EB Garamond', var(--font-serif);
+}
+[data-entry-font='jetbrains-mono'] {
+	--entry-font: 'NW JetBrains Mono', var(--font-mono);
+}
+[data-entry-font='caveat'] {
+	--entry-font: 'NW Caveat', var(--font-serif);
+}
+[data-entry-font='dancing-script'] {
+	--entry-font: 'NW Dancing Script', var(--font-serif);
+	/* Its file declares an x-height of 0.332, but its "x" is drawn about 0.39
+	   tall: adjusted by the declared figure it came out 18% bigger than Default
+	   (113px against 96 at 200px). This is the measured value; every other font's
+	   declared x-height measured within 2% (docs/constraints.md, "Journal fonts"). */
+	--entry-adjust: 0.409;
+}
+[data-entry-font]:not([data-entry-font='default']) {
+	/* The title is in the app's sans under Default, so it takes the journal's
+	   font only when there is one. */
+	:is(.entry-title, .entry-title-field) {
+		font-family: var(--entry-font);
+	}
+}
+
+/* Bold in the body is 600 (the typography plugin's `strong`), and 600 reads as
+   bold in every font but the two handwritten ones, whose strokes are thin:
+   measured, the ink of "quick bold" at 600 is 1.26× Caveat's regular and 1.19×
+   Dancing Script's, against 1.39× Lora's. Both are variable up to 700, so their
+   body bold is drawn at that, the heaviest each has (1.42× and 1.29×). The
+   preview line's bold follows, as it draws what an entry draws. Bold inside a
+   heading asks for 800 or 900, which these two draw at 700 anyway; titles and
+   headings keep their own weights. */
+:is([data-entry-font='caveat'], [data-entry-font='dancing-script']) .entry-prose strong,
+.entry-preview:is([data-entry-font='caveat'], [data-entry-font='dancing-script']) strong {
+	font-weight: 700;
+}
+
+/* Every font but Default and Dancing Script (above): Georgia's x-height. Not
+   inside the rule above, which is more specific and would override Dancing
+   Script's own value. */
+:where([data-entry-font]:not([data-entry-font='default'])) {
+	--entry-adjust: 0.481;
+}
+
+[data-entry-size='small'] {
+	--entry-size: 16px;
+}
+[data-entry-size='big'] {
+	--entry-size: 20px;
+	--entry-field-size: 18px;
+}
+
+/* The read page's title: `text-3xl` (30px on a 36px line) at Normal, and the
+   same proportion of the body at the other sizes. */
+.entry-title {
+	font-size: calc(var(--entry-size, 18px) * 30 / 18);
+	line-height: 1.2;
+	font-size-adjust: var(--entry-adjust, none);
+}
+
+/* The title field on the edit and new-entry pages: the forms plugin's 16px on a
+   24px line, and 18px at Big. Never under 16px (iOS zooms into smaller fields). */
+.entry-title-field {
+	font-size: var(--entry-field-size, 1rem);
+	line-height: 1.5;
+	font-size-adjust: var(--entry-adjust, none);
+}
+
+/* The no-JavaScript textarea: the body's family, size and line height. */
+.entry-textarea {
+	font-family: var(--entry-font, var(--font-serif));
+	font-size: var(--entry-size, 18px);
+	line-height: 1.75;
+	font-size-adjust: var(--entry-adjust, none);
+}
+
+/* The journal dialog's preview line: drawn as the body is, in the font and
+   size it previews (`JournalDialog.svelte`). */
+.entry-preview {
+	font-family: var(--entry-font, var(--font-serif));
+	font-size: var(--entry-size, 18px);
+	line-height: 1.75;
+	font-size-adjust: var(--entry-adjust, none);
+}
+
+/* A file on its way is drawn in the app's sans inside the body; it is the app
+   talking, not the entry, so it is not resized with the journal's font. */
+.entry-upload {
+	font-size-adjust: none;
+}
+
+/**
+ * A scrollbar in the app's greys, for a region that scrolls inside a surface:
+ * the body of a dialog (see `JournalDialog.svelte`).
+ *
+ * The browser's own bar is drawn for the page, in the page's colours, and on a
+ * white or `#1E1E1E` card it reads as a grey slab from another app. This one is
+ * thin, has no track, and has a thumb in the border greys, a step darker so it
+ * can be seen.
+ *
+ * Two mechanisms, because no one of them covers every engine. `scrollbar-width`
+ * and `scrollbar-color` are the standard, in Firefox and Chromium (121+, which
+ * then ignores the `::-webkit-scrollbar` rules entirely). Safari reads only the
+ * pseudo-elements. Either way it is still the browser's scrollbar: the thumb
+ * drags, the track pages, the wheel and a finger scroll the region, and phones
+ * draw their own overlay bar whatever is said here.
+ *
+ * `overscroll-behavior: contain` goes with it where it is used, so a flick that
+ * reaches the end of the region does not carry on into the page behind.
+ */
+@utility scrollbar-app {
+	scrollbar-width: thin;
+	scrollbar-color: #bdbdbd transparent;
+
+	&::-webkit-scrollbar {
+		width: 10px;
+	}
+
+	&::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	&::-webkit-scrollbar-thumb {
+		border: 2px solid transparent;
+		border-radius: 9999px;
+		background-color: #bdbdbd;
+		background-clip: padding-box;
+	}
+
+	@variant dark {
+		scrollbar-color: #616161 transparent;
+
+		&::-webkit-scrollbar-thumb {
+			background-color: #616161;
+		}
+	}
+}
+
+/**
+ * A toast's entrance (`$lib/toast/ToastItem.svelte`): a short rise and fade,
+ * only for somebody who has not asked for less motion. With
+ * `prefers-reduced-motion: reduce` it simply appears, and it always simply
+ * goes. See docs/constraints.md, "Toasts".
+ */
+@keyframes nw-toast-in {
+	from {
+		opacity: 0;
+		transform: translateY(0.5rem);
+	}
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.nw-toast {
+		animation: nw-toast-in 160ms ease-out;
+	}
+}
+
+@keyframes entry-gap-caret-blink {
+	50% {
+		visibility: hidden;
+	}
+}
+
+/* THE MOVE CURSOR while a selected item is dragged (`MOVING_CLASS`): once the drag has
+   begun, everywhere it goes, over the corner button's own `pointer` too. Never on
+   hover, so the corner button still reads as a button. */
+html.entry-moving,
+html.entry-moving * {
+	cursor: move !important;
+}
+
+/* THE DROP LINE while a selected item is dragged (`$lib/entries/pointer-selection`,
+   MOVING A SELECTED ITEM): across the boundary where it will land. On the page's
+   body, placed in the window's coordinates. Above the entry's text, below the
+   pinned row (`z-10`), so it never draws over the toolbar. The brand blue, which
+   is the same in both themes (docs/constraints.md, "Design tokens"). */
+.entry-drop-line {
+	position: fixed;
+	z-index: 5;
+	height: 2px;
+	margin-top: -1px;
+	border-radius: 1px;
+	background-color: #1976d2;
+	pointer-events: none;
+}
